@@ -1,107 +1,107 @@
-let paginaAttuale = 1;
-let rottaAttuale = 'tutti';
-let sessionToken = null; // Aggiunto: Variabile per salvare il token
 
-// AGGIUNTO: Funzione per fare il login e prendere il token
-async function eseguiLogin() {
-    const userBox = document.getElementById('username').value;
-    const passBox = document.getElementById('password').value;
-
-    const risposta = await fetch(`gateway.php/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: userBox, password: passBox })
-    });
-    
-    const dati = await risposta.json();
-    if (risposta.ok) {
-        sessionToken = dati.token;
-        alert("Login effettuato! Ora puoi caricare gli sport.");
-    } else {
-        alert("Errore: " + dati.errore);
-    }
-}
-
-// LA TUA FUNZIONE ORIGINALE (Modificata solo per usare il gateway e il token)
-async function caricaDati(rotta, nuovaPagina = 1) {
-    rottaAttuale = rotta;
-    paginaAttuale = nuovaPagina;
-
-    const controlli = document.getElementById('controlli');
-    const controlliPagine = document.getElementById('controlli-pagine');
-    
-    controlli.innerHTML = "<div class='col-12 text-center text-muted'><em>Interrogando il controller...</em></div>";
-    controlliPagine.style.display = "none";
-
-    try {
-        // MODIFICA: Ora chiamiamo gateway.php invece di api.php
-        let url = `gateway.php/${rotta}`;
-        if (rotta === 'tutti') {
-            url += `?pagina=${paginaAttuale}`;
-        }
-
-        // MODIFICA: Aggiunto l'invio del token nell'header Authorization
-        const risposta = await fetch(url, {
-            headers: { 'Authorization': 'Bearer ' + sessionToken }
-        });
+        const GATEWAY_URL = 'gateway.php';
         
-        const json = await risposta.json();
+        // Questa variabile globale simulerà la sessione del browser
+        let sessionToken = null;
 
-        if (!risposta.ok || json.errore) {
-            let messaggioErrore = 'Errore generico';
-            if (json.errore) {
-                messaggioErrore = json.errore;
+        // 1. FUNZIONE DI LOGIN (Invia credenziali via POST)
+        async function eseguiLogin() {
+            const userBox = document.getElementById('username').value;
+            const passBox = document.getElementById('password').value;
+            const container = document.getElementById('container-tabella');
+
+            try {
+                const risposta = await fetch(`${GATEWAY_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: userBox, password: passBox })
+                });
+
+                const dati = await risposta.json();
+
+                if (risposta.status === 200) {
+                    sessionToken = dati.token;
+                    
+                    document.getElementById('stato-sessione').className = "status-badge status-connected";
+                    document.getElementById('stato-sessione').innerText = `Autenticato come: ${dati.utente.username} (${dati.utente.ruolo})`;
+                    document.getElementById('area-login').style.display = "none";
+                    document.getElementById('btn-logout').style.display = "inline-block";
+                    container.innerHTML = `<p style="color: green;"><b>${dati.messaggio}</b> Ora puoi richiedere gli sport.</p>`;
+                } else {
+                    container.innerHTML = `<div class="error-box"><b>Errore di Login:</b> ${dati.errore}</div>`;
+                }
+            } catch (err) {
+                container.innerHTML = "<div class='error-box'>Impossibile contattare il servizio di autenticazione.</div>";
             }
-            controlli.innerHTML = `<div class="col-12 text-center text-danger fw-bold">${messaggioErrore}</div>`;
-            return;
         }
 
-        let elencoSport = [];
-        
-        if (json.metadati) {
-            elencoSport = json.dati;
-            const meta = json.metadati;
+        // 2. RECUPERO RISORSA PROTETTA (Passa la rotta dinamicamente)
+        async function richiediSport(rotta) {
+            const container = document.getElementById('container-tabella');
+            container.innerHTML = "<em>Interrogando il Gateway sicuro...</em>";
 
-            controlli.innerHTML = `<h3 class="col-12 text-center mb-4">Risultati per: /${rotta} <br><small class="text-muted fs-6">Pagina ${meta.pagina_corrente} di ${meta.totale_pagine}</small></h3>`;
-            
-            let statoBottonePrecedente = "";
-            if (meta.pagina_corrente === 1) {
-                statoBottonePrecedente = "disabled";
+            try {
+                // Aggiungiamo la rotta scelta al Gateway URL
+                const risposta = await fetch(`${GATEWAY_URL}${rotta}`, {
+                    method: 'GET',
+                    headers: { 
+                        'Authorization': `Bearer ${sessionToken}` 
+                    }
+                });
+                
+                const rispostaOggetto = await risposta.json(); 
+
+                if (risposta.status === 200) {
+                    const elencoSport = rispostaOggetto.data;       
+                    
+                    // Intestazione della tabella aggiornata per gli sport
+                    let htmlTabella = `<p><small>Provenienza dei dati: <b>${rispostaOggetto.servizio_origine}</b></small></p>
+                    <table class="api-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nome</th>
+                                <th>Tipologia</th>
+                                <th>Anno Invenzione</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+                    // Ciclo per creare le righe della tabella con i dati degli sport
+                    elencoSport.forEach(sport => {
+                        htmlTabella += `<tr>
+                            <td><b>#${sport.id}</b></td>
+                            <td>${sport.nome}</td>
+                            <td>${sport.tipo}</td>
+                            <td>${sport.anno_invenzione}</td>
+                        </tr>`;
+                    });
+
+                    htmlTabella += `</tbody></table>`;
+                    container.innerHTML = htmlTabella;
+                } else {
+                    // Errore generato dal Gateway se il token non c'è o è scaduto
+                    container.innerHTML = `
+                        <div class="error-box">
+                            <h3>Errore HTTP ${risposta.status} (Non Autorizzato)</h3>
+                            <p>${rispostaOggetto.errore}</p>
+                        </div>
+                    `;
+                }
+
+            } catch (err) {
+                container.innerHTML = "<div class='error-box'>Errore di connessione con l'infrastruttura.</div>";
             }
-
-            let statoBottoneSuccessivo = "";
-            if (meta.pagina_corrente === meta.totale_pagine) {
-                statoBottoneSuccessivo = "disabled";
-            }
-
-            controlliPagine.style.display = "flex";
-            controlliPagine.classList.add("justify-content-between", "align-items-center");
-            
-            controlliPagine.innerHTML = `
-                <div class="text-muted">Elementi totali: <b>${meta.totale_elementi}</b></div>
-                <div>
-                    <button class="btn btn-outline-secondary me-2" ${statoBottonePrecedente} onclick="caricaDati('${rotta}', ${meta.pagina_corrente - 1})">« Precedente</button>
-                    <button class="btn btn-outline-secondary" ${statoBottoneSuccessivo} onclick="caricaDati('${rotta}', ${meta.pagina_corrente + 1})">Successiva »</button>
-                </div>
-            `;
-        } else {
-            elencoSport = json; 
-            controlli.innerHTML = `<h3 class="col-12 text-center mb-4">Risultati per: /${rotta}</h3>`;
         }
 
-        elencoSport.forEach(sport => {
-            controlli.innerHTML += `
-                <div class="col-12 col-md-6 mb-3">
-                    <div class="p-3 bg-white border rounded shadow-sm" style="border-left: 5px solid #0d6efd !important;">
-                        <strong>${sport.nome}</strong> (${sport.anno_invenzione})<br>
-                        <small class="text-muted">Tipo: ${sport.tipo}</small>
-                    </div>
-                </div>
-            `;
-        });
-
-    } catch (err) {
-        controlli.innerHTML = "<b style='color:red;'>Errore nella chiamata al Web Service.</b>";
-        console.error(err);
-    }
-}
+        // 3. LOGOUT (Svuota il token locale)
+        function eseguiLogout() {
+            sessionToken = null; // Distruggiamo il token
+            document.getElementById('stato-sessione').className = "status-badge status-disconnected";
+            document.getElementById('stato-sessione').innerText = "Non autenticato";
+            document.getElementById('area-login').style.display = "block";
+            document.getElementById('btn-logout').style.display = "none";
+            document.getElementById('container-tabella').innerHTML = "<p>Sessione chiusa. Ti sei disconnesso correttamente.</p>";
+            document.getElementById('username').value = "";
+            document.getElementById('password').value = "";
+        }
